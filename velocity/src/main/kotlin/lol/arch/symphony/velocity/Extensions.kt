@@ -1,8 +1,9 @@
 package lol.arch.symphony.velocity
 
-import gg.scala.commons.consensus.Locks
 import net.evilblock.cubed.serializers.Serializers
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
 
 /**
  * @author GrowlyX
@@ -10,6 +11,18 @@ import java.util.*
  */
 inline fun <reified T> String.into() = Serializers.gson.fromJson(this, T::class.java)
 
-fun <T> UUID.acquirePlayerLock(use: () -> T) = Locks.withGlobalLock(
-    "symphony-trackedPlayer", this.toString(), use
-)
+private val playerLocks = ConcurrentHashMap<UUID, ReentrantLock>()
+
+fun <T> UUID.acquirePlayerLock(use: () -> T): T
+{
+    val lock = playerLocks.computeIfAbsent(this) { ReentrantLock() }
+    lock.lock()
+    try
+    {
+        return use()
+    }
+    finally
+    {
+        lock.unlock()
+    }
+}

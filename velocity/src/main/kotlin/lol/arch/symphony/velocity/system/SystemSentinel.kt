@@ -1,7 +1,6 @@
 package lol.arch.symphony.velocity.system
 
 import gg.scala.cache.uuid.ScalaStoreUuidCache
-import gg.scala.commons.ScalaCommons
 import lol.arch.symphony.velocity.VelocitySymphonyPlugin
 import java.time.Duration
 import java.util.concurrent.Executors
@@ -72,9 +71,10 @@ class SystemSentinel : Runnable
     {
         runCatching {
             plugin.instanceTracker.deadInstances().onEach { instance ->
-                with(ScalaCommons.bundle().globals().redis().sync()) {
-                    hdel("symphony:instances", instance)
-                    hdel("symphony:heartbeats", instance)
+                plugin.channels.redis { redis ->
+                    val sync = redis.sync()
+                    sync.hdel("symphony:instances", instance)
+                    sync.hdel("symphony:heartbeats", instance)
                 }
 
                 plugin.logger.info { "[sentinel] Disposing $instance as the instance has been unresponsive for >5s." }
@@ -82,7 +82,7 @@ class SystemSentinel : Runnable
 
             plugin.playerCatalogue.deadPlayers().onEach { player ->
                 plugin.playerTracker.delete(player.uniqueId)
-                plugin.logger.info { "[sentinel] Disposing player $player (${
+                plugin.logger.info { "[sentinel] Disposing player $player (${ 
                     ScalaStoreUuidCache.username(player.uniqueId)
                 }) as they have been unresponsive for >5s." }
             }

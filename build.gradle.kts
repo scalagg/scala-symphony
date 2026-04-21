@@ -17,6 +17,7 @@ allprojects {
     version = "1.1.1"
 
     repositories {
+        mavenLocal()
         mavenCentral()
         maven("https://nexus.velocitypowered.com/repository/maven-public/")
         configureScalaRepository()
@@ -69,11 +70,19 @@ subprojects {
         }
     }
 
+    val publishOnBuild = providers
+        .gradleProperty("publishOnBuild")
+        .orNull
+        ?.toBoolean() == true
+
     tasks.getByName("build")
-        .dependsOn(
-            "shadowJar",
-            "publishMavenJavaPublicationToScalaRepository"
-        )
+        .dependsOn("shadowJar")
+
+    if (publishOnBuild)
+    {
+        tasks.getByName("build")
+            .dependsOn("publishMavenJavaPublicationToScalaRepository")
+    }
 }
 
 fun RepositoryHandler.configureScalaRepository(dev: Boolean = false)

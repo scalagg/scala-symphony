@@ -6,8 +6,6 @@ import gg.scala.commons.acf.ConditionFailedException
 import gg.scala.commons.acf.annotation.CommandAlias
 import lol.arch.symphony.velocity.VelocitySymphonyPlugin
 import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.event.ClickEvent
-import net.kyori.adventure.text.event.HoverEvent
 import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.text.format.TextDecoration
 
@@ -31,12 +29,12 @@ class DeadServerIDListCommand(private val plugin: VelocitySymphonyPlugin) : Base
         }
 
         instances.forEach { instance ->
-            player.sendMessage(Component.text {
-                it.append(Component
+            player.sendMessage(
+                Component
                     .text("- $instance")
-                    .color(NamedTextColor.WHITE))
+                    .color(NamedTextColor.WHITE)
                     .decorate(TextDecoration.STRIKETHROUGH)
-            })
+            )
         }
     }
 }

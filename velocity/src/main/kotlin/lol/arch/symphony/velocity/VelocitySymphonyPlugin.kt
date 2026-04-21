@@ -8,8 +8,7 @@ import com.velocitypowered.api.plugin.Dependency
 import com.velocitypowered.api.plugin.Plugin
 import com.velocitypowered.api.plugin.annotation.DataDirectory
 import com.velocitypowered.api.proxy.ProxyServer
-import gg.scala.commons.velocity.ScalaCommonsVelocity
-import gg.scala.commons.velocity.VelocityPlugins
+import gg.scala.commons.acf.ConditionFailedException
 import lol.arch.symphony.velocity.command.*
 import lol.arch.symphony.velocity.instance.InstanceActionExecutor
 import lol.arch.symphony.velocity.instance.LiveInstanceTracker
@@ -19,6 +18,7 @@ import lol.arch.symphony.velocity.player.PlayerCatalogue
 import lol.arch.symphony.velocity.system.SystemSentinel
 import java.io.File
 import java.nio.file.Path
+import java.util.UUID
 import java.util.logging.Logger
 import kotlin.properties.Delegates
 
@@ -60,6 +60,8 @@ constructor(
     val instanceTracker by lazy { LiveInstanceTracker() }
     val instanceActionExecutor by lazy { InstanceActionExecutor() }
 
+    lateinit var channels: SymphonyChannels
+
     lateinit var config: InstanceConfig
 
     init
@@ -75,18 +77,19 @@ constructor(
             directory.toFile().mkdirs()
         }
 
-        config = VelocityPlugins.createConfiguration(
-            File(
-                directory.toFile(),
-                "instance.yaml"
-            ),
-            InstanceConfig.serializer()
-        )
+        val configFile = File(directory.toFile(), "instance.json")
+        config = InstanceConfigIO.load(configFile)
 
-        runCatching {
-            config.id = ScalaCommonsVelocity.selfGameServerID
-            logger.info("Detected Agones environment, using ${config.id} as the new id.")
-        }
+        System.getenv("GAME_SERVER_ID")
+            ?.takeIf { it.isNotBlank() }
+            ?.let {
+                config.id = it
+                InstanceConfigIO.save(configFile, config)
+                logger.info("Detected environment GAME_SERVER_ID, using ${config.id} as id.")
+            }
+
+        channels = SymphonyChannels(logger)
+        channels.connect().join()
 
         playerTracker.plugin = this@VelocitySymphonyPlugin
         server.eventManager.register(this@VelocitySymphonyPlugin, playerTracker)
@@ -99,18 +102,35 @@ constructor(
         playerCatalogue.startTracking(this@VelocitySymphonyPlugin)
         playerReconciler.startReconciliation(this@VelocitySymphonyPlugin)
 
-        val commandManager = VelocityPlugins.createCommands(this@VelocitySymphonyPlugin)
-        commandManager.commandCompletions.registerCompletion("instances") {
-            instanceTracker.liveInstances()
+        val commandManager = gg.scala.commons.acf.VelocityCommandManager(server, this@VelocitySymphonyPlugin)
+        commandManager.commandContexts.registerContext(UUID::class.java) {
+            val firstArg = it.popFirstArg()
+
+            return@registerContext try
+            {
+                UUID.fromString(firstArg)
+            } catch (_: IllegalArgumentException)
+            {
+                throw ConditionFailedException("$firstArg is not a valid uuid.")
+            }
         }
 
+        commandManager.commandCompletions.registerCompletion("instances") {
+            instanceTracker.liveInstances().toList()
+        }
+        commandManager.commandCompletions.registerCompletion("players") {
+            playerCatalogue.players().map { it.uniqueId.toString() }
+        }
+
+        commandManager.enableUnstableAPI("help")
+
         commandManager.registerCommand(TrackedPlayerCommand(this@VelocitySymphonyPlugin))
-        commandManager.registerCommand(GlobalListCommand(this@VelocitySymphonyPlugin), true)
-        commandManager.registerCommand(RunCommandCommand(this@VelocitySymphonyPlugin), true)
-        commandManager.registerCommand(ServerIDCommand(this@VelocitySymphonyPlugin), true)
-        commandManager.registerCommand(ServerIDListCommand(this@VelocitySymphonyPlugin), true)
-        commandManager.registerCommand(PlayerProxyCommand(this@VelocitySymphonyPlugin), true)
-        commandManager.registerCommand(DeadServerIDListCommand(this@VelocitySymphonyPlugin), true)
+        commandManager.registerCommand(GlobalListCommand(this@VelocitySymphonyPlugin))
+        commandManager.registerCommand(RunCommandCommand(this@VelocitySymphonyPlugin))
+        commandManager.registerCommand(ServerIDCommand(this@VelocitySymphonyPlugin))
+        commandManager.registerCommand(ServerIDListCommand(this@VelocitySymphonyPlugin))
+        commandManager.registerCommand(PlayerProxyCommand(this@VelocitySymphonyPlugin))
+        commandManager.registerCommand(DeadServerIDListCommand(this@VelocitySymphonyPlugin))
 
         SystemSentinel.startSentinelWatcher(this@VelocitySymphonyPlugin)
     }

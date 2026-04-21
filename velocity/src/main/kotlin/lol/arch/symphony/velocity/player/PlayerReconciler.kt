@@ -4,7 +4,7 @@ import lol.arch.symphony.api.model.TrackedPlayer
 import lol.arch.symphony.velocity.VelocitySymphonyPlugin
 import lol.arch.symphony.velocity.acquirePlayerLock
 import lol.arch.symphony.velocity.player.requests.PlayerReconcileRequest
-import lol.arch.symphony.velocity.rpc.SymphonyRPC
+import net.evilblock.cubed.serializers.Serializers
 import java.time.Duration
 
 /**
@@ -15,8 +15,13 @@ class PlayerReconciler : Runnable
 {
     private lateinit var plugin: VelocitySymphonyPlugin
 
-    fun reconcile(request: PlayerReconcileRequest) = SymphonyRPC
-        .reconcilePlayerRPC.callSync(request)
+    fun reconcile(request: PlayerReconcileRequest)
+    {
+        plugin.channels.publishRPC(
+            "playerReconcile",
+            "request" to Serializers.gson.toJson(request)
+        )
+    }
 
     fun startReconciliation(plugin: VelocitySymphonyPlugin)
     {
@@ -27,7 +32,7 @@ class PlayerReconciler : Runnable
             .repeat(Duration.ofSeconds(1L))
             .schedule()
 
-        SymphonyRPC.reconcilePlayerRPC.addHandler(PlayerReconcilerHandler(plugin))
+        // Handler registration is performed by InstanceActionExecutor
     }
 
     override fun run()

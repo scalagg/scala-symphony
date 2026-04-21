@@ -1,6 +1,5 @@
 package lol.arch.symphony.velocity.player
 
-import gg.scala.commons.ScalaCommons
 import lol.arch.symphony.api.model.TrackedPlayer
 import lol.arch.symphony.velocity.VelocitySymphonyPlugin
 import lol.arch.symphony.velocity.acquirePlayerLock
@@ -31,24 +30,20 @@ class PlayerCatalogue : Runnable
             .schedule()
     }
 
-    fun deadPlayers() = ScalaCommons.bundle()
-        .globals().redis().sync()
-        .hgetall("symphony:players")
-        .values
+    private fun allPlayersRaw() = plugin.channels.redisWithReturn { redis ->
+        redis.sync().hgetall("symphony:players").values
+    } ?: emptyList()
+
+    fun deadPlayers(): List<TrackedPlayer> = allPlayersRaw()
         .mapNotNull { it.into<TrackedPlayer>() }
         .filter { tracked ->
-            System.currentTimeMillis() - tracked.lastHeartbeat >= Duration
-                .ofSeconds(10L)
-                .toMillis()
+            System.currentTimeMillis() - tracked.lastHeartbeat >= Duration.ofSeconds(10L).toMillis()
         }
 
     fun players() = lock.read { cache }
     fun playerCount() = lock.read { cache.size }
 
-    fun onProxyAll(proxyID: String) = ScalaCommons.bundle()
-        .globals().redis().sync()
-        .hgetall("symphony:players")
-        .values
+    fun onProxyAll(proxyID: String) = allPlayersRaw()
         .mapNotNull { it.into<TrackedPlayer>() }
         .filter { player -> player.instance == proxyID }
 
@@ -58,15 +53,10 @@ class PlayerCatalogue : Runnable
     override fun run()
     {
         lock.write {
-            val allPlayers = ScalaCommons.bundle()
-                .globals().redis().sync()
-                .hgetall("symphony:players")
-                .values
+            val allPlayers = allPlayersRaw()
                 .mapNotNull { it.into<TrackedPlayer>() }
                 .filterNot { tracked ->
-                    System.currentTimeMillis() - tracked.lastHeartbeat > Duration
-                        .ofSeconds(10L)
-                        .toMillis()
+                    System.currentTimeMillis() - tracked.lastHeartbeat > Duration.ofSeconds(10L).toMillis()
                 }
 
             cache = allPlayers.toSet()

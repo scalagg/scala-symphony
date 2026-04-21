@@ -5,5 +5,6 @@ dependencies {
     kapt("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
 
     compileOnly("gg.scala.store:velocity:1.0.0")
-    compileOnly("gg.scala.commons:velocity:7.2.0")
+    compileOnly("gg.scala.aware:aware:2.0.0")
+    compileOnly("gg.scala.commons:velocity:4.0.7")
 }

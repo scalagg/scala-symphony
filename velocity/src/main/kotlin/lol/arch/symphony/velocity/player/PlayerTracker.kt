@@ -9,7 +9,6 @@ import com.velocitypowered.api.event.connection.PostLoginEvent
 import com.velocitypowered.api.event.player.ServerPostConnectEvent
 import gg.scala.aware.message.AwareMessage
 import gg.scala.aware.thread.AwareThreadContext
-import gg.scala.commons.ScalaCommons
 import lol.arch.symphony.api.model.TrackedPlayer
 import lol.arch.symphony.velocity.VelocitySymphonyPlugin
 import lol.arch.symphony.velocity.acquirePlayerLock
@@ -76,7 +75,6 @@ class PlayerTracker
                         )
                     })
                 }
-                .join()
         }.onFailure {
             result = ResultedEvent.ComponentResult.denied(Component.text {
                 it.append(
@@ -108,26 +106,16 @@ class PlayerTracker
                 val existing = find(player.uniqueId)
                 if (existing == null)
                 {
-                    val trackedPlayer = TrackedPlayer(
-                        uniqueId = player.uniqueId,
-                        instance = plugin.config.id
-                    )
-
-                    save(trackedPlayer)
-
-                    AwareMessage
-                        .of(
-                            "login",
-                            ScalaCommons.bundle().globals().aware(),
-                            "player" to player.uniqueId
+                        val trackedPlayer = TrackedPlayer(
+                            uniqueId = player.uniqueId,
+                            instance = plugin.config.id
                         )
-                        .publish(
-                            AwareThreadContext.ASYNC,
-                            "symphony:networkEvents"
-                        )
-                }
+
+                        save(trackedPlayer)
+
+                        plugin.channels.publishNetworkEvent("login", player.uniqueId)
+                    }
             }
-            .join()
     }
 
     @Subscribe(order = PostOrder.LAST)
@@ -148,18 +136,12 @@ class PlayerTracker
 
         if (previousServer != null)
         {
-            AwareMessage
-                .of(
-                    "switch",
-                    ScalaCommons.bundle().globals().aware(),
-                    "player" to player.uniqueId,
-                    "from" to previousServer?.serverInfo?.name,
-                    "to" to instanceID
-                )
-                .publish(
-                    AwareThreadContext.ASYNC,
-                    "symphony:networkEvents"
-                )
+            plugin.channels.publishNetworkEvent(
+                "switch",
+                player.uniqueId,
+                "from" to (previousServer?.serverInfo?.name ?: ""),
+                "to" to instanceID
+            )
         }
     }
 
@@ -178,7 +160,7 @@ class PlayerTracker
             AwareMessage
                 .of(
                     "logout",
-                    ScalaCommons.bundle().globals().aware(),
+                    plugin.channels.aware,
                     "player" to player.uniqueId
                 )
                 .publish(
@@ -188,17 +170,17 @@ class PlayerTracker
         }
     }
 
-    fun delete(player: UUID) = ScalaCommons.bundle()
-        .globals().redis().sync()
-        .hdel("symphony:players", player.toString())
+    fun delete(player: UUID) = plugin.channels.redis { redis ->
+        redis.sync().hdel("symphony:players", player.toString())
+    }
 
-    fun save(player: TrackedPlayer) = ScalaCommons.bundle()
-        .globals().redis().sync()
-        .hset(
+    fun save(player: TrackedPlayer) = plugin.channels.redis { redis ->
+        redis.sync().hset(
             "symphony:players",
             player.uniqueId.toString(),
             Serializers.gson.toJson(player)
         )
+    }
 
     fun update(player: UUID, use: TrackedPlayer.() -> Unit) = find(player)
         ?.apply(use)
@@ -206,8 +188,7 @@ class PlayerTracker
             save(this)
         }
 
-    fun find(player: UUID) = ScalaCommons.bundle()
-        .globals().redis().sync()
-        .hget("symphony:players", player.toString())
-        ?.into<TrackedPlayer>()
+    fun find(player: UUID) = plugin.channels.redisWithReturn { redis ->
+        redis.sync().hget("symphony:players", player.toString())
+    }?.into<TrackedPlayer>()
 }

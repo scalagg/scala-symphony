@@ -1,6 +1,5 @@
 package lol.arch.symphony.velocity.instance
 
-import gg.scala.commons.ScalaCommons
 import lol.arch.symphony.velocity.InstanceConfig
 import lol.arch.symphony.velocity.VelocitySymphonyPlugin
 import java.time.Duration
@@ -36,69 +35,53 @@ class LiveInstanceTracker : Runnable
 
     fun globalPlayerCount() = cache
         .sumOf { serverID ->
-            ScalaCommons
-                .bundle().globals().redis()
-                .sync().hget(
-                    "symphony:instances",
-                    serverID
-                )
+            plugin.channels.redisWithReturn { redis ->
+                redis.sync().hget("symphony:instances", serverID)
+            }
                 ?.toIntOrNull()
                 ?: 0
         }
 
-    fun playerCount(instance: String) = ScalaCommons.bundle()
-        .globals().redis().sync()
-        .hget(
-            "symphony:instances",
-            instance
-        )
+    fun playerCount(instance: String) = plugin.channels.redisWithReturn { redis ->
+        redis.sync().hget("symphony:instances", instance)
+    }
         ?.toIntOrNull()
         ?: 0
 
-    fun deadInstances() = ScalaCommons.bundle()
-        .globals().redis().sync()
-        .hkeys("symphony:instances")
-        .filter {
-            val heartbeat = ScalaCommons.bundle()
-                .globals().redis().sync()
-                .hget("symphony:heartbeats", it)
-                ?.toLongOrNull()
-                ?: 0L
+    fun deadInstances(): Set<String>
+    {
+        val instanceIds: Set<String> = plugin.channels.redisWithReturn { redis ->
+            redis.sync().hkeys("symphony:instances").toSet()
+        } ?: emptySet()
+
+        return instanceIds.filter { instanceId ->
+            val heartbeat = plugin.channels.redisWithReturn { redis ->
+                redis.sync().hget("symphony:heartbeats", instanceId)
+            }?.toLongOrNull() ?: 0L
 
             System.currentTimeMillis() - heartbeat >= Duration
                 .ofSeconds(5L)
                 .toMillis()
-        }
-        .toSet()
+        }.toSet()
+    }
 
     override fun run()
     {
         lock.write {
-            with(
-                ScalaCommons.bundle()
-                    .globals().redis().sync()
-            ) {
-                hset(
-                    "symphony:instances",
-                    instanceConfig.id,
-                    plugin.server.playerCount.toString()
-                )
+            val heartbeats = plugin.channels.redisWithReturn { redis ->
+                val sync = redis.sync()
+                sync.hset("symphony:instances", instanceConfig.id, plugin.server.playerCount.toString())
+                sync.hset("symphony:heartbeats", instanceConfig.id, System.currentTimeMillis().toString())
+                sync.hgetall("symphony:heartbeats")
+            } ?: emptyMap()
 
-                hset(
-                    "symphony:heartbeats",
-                    instanceConfig.id,
-                    System.currentTimeMillis().toString()
-                )
-
-                cache = hgetall("symphony:heartbeats")
-                    .filterNot {
-                        System.currentTimeMillis() - it.value.toLong() > Duration
-                            .ofSeconds(5L)
-                            .toMillis()
-                    }
-                    .keys
-                    .toSet()
-            }
+            cache = heartbeats
+                .filterNot { entry ->
+                    val heartbeat = entry.value.toLongOrNull() ?: 0L
+                    System.currentTimeMillis() - heartbeat > Duration.ofSeconds(5L).toMillis()
+                }
+                .keys
+                .toSet()
         }
     }
 }
